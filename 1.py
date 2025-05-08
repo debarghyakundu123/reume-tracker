@@ -21,21 +21,25 @@ if resume_file:
         mime="application/pdf"
     )
 
-    # Set your app URL here
+    # Generate unique tracking URL
     app_url = "https://reume-tracker-dk.streamlit.app/"
+    tracking_url = f"{app_url}?track=true"
 
     st.write("✅ Share this link with others to track views:")
 
-    st.code(f"{app_url}?track=true")
+    # Display the link that users can share
+    st.code(tracking_url)
 
-# Track access
+# Track access via query parameters
 query_params = st.experimental_get_query_params()
 if 'track' in query_params:
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     log_entry = f'Resume viewed at {timestamp}'
     st.session_state.logs.append(log_entry)
+    
     st.write("✅ Thanks for viewing the resume!")
 
+    # Provide download button again after view
     if resume_file:
         st.download_button(
             label="Download Resume",
@@ -44,9 +48,10 @@ if 'track' in query_params:
             mime="application/pdf"
         )
 
-# Show logs
+# Show logs of views (view count)
 st.subheader("📜 View Logs")
 if st.session_state.logs:
+    st.write(f"Total views: {len(st.session_state.logs)}")
     for log in st.session_state.logs:
         st.write(log)
 else:
