@@ -12,7 +12,7 @@ resume_file = st.file_uploader("Upload your resume (PDF):")
 
 if resume_file:
     st.success("✅ Your resume is ready to share!")
-    
+
     # Provide download button
     st.download_button(
         label="Download Resume",
@@ -21,8 +21,12 @@ if resume_file:
         mime="application/pdf"
     )
 
-    st.write("Share this link with others: ")
-    st.code(st.request.url)  # Displays your Streamlit Cloud URL
+    # Set your app URL here
+    app_url = "https://your-app-name-your-username.streamlit.app"
+
+    st.write("✅ Share this link with others to track views:")
+
+    st.code(f"{app_url}?track=true")
 
 # Track access
 query_params = st.experimental_get_query_params()
