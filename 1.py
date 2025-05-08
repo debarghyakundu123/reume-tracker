@@ -1,57 +1,51 @@
 import streamlit as st
 from datetime import datetime
 
-# Initialize session state to store hits
-if 'hits' not in st.session_state:
-    st.session_state['hits'] = []
+# Initialize session state for storing the click logs and count
+if 'click_logs' not in st.session_state:
+    st.session_state['click_logs'] = []
+if 'click_count' not in st.session_state:
+    st.session_state['click_count'] = 0
 
-# Title
+# Title for the app
 st.title("📄 Resume Open Tracker")
 
-st.write("➡️ This app tracks when someone opens your resume PDF via the tracking URL.")
+# Instructions
+st.write("➡️ Track how many times your resume link is clicked.")
 
-# Display current logs
-st.subheader("🔔 Notifications (Resume Open Logs):")
-if st.session_state['hits']:
-    for hit in reversed(st.session_state['hits']):
-        st.info(f"Resume was opened at: {hit}")
-else:
-    st.write("No opens yet. Waiting for someone to open your resume...")
+# Your original Google Drive resume link (can be any link)
+RESUME_LINK = "https://drive.google.com/file/d/1cqj9BKunrcrytGSVYz8FRziXfIjSrOPx/view?usp=sharing"
 
-# Set your app's public URL manually here 👇
-PUBLIC_APP_URL = "https://reume-tracker-dk.streamlit.app/"  # Use your Streamlit app URL
+# Create a custom tracking URL for the resume (without relying on Bitly or other services)
+TRACKING_URL = f"{st.experimental_get_url()}?track=1"
 
-# Generate and display the shareable link
-st.subheader("🔗 Your Resume Tracking Link:")
-tracking_link = f"{PUBLIC_APP_URL}?track=1"
-st.code(tracking_link)
+# Display the tracking URL (shareable link)
+st.subheader("🔗 Your Custom Tracking Link:")
+st.code(TRACKING_URL)
 
-# Check if the user accessed the tracking link automatically
+# When the link is clicked (query parameters check)
 query_params = st.experimental_get_query_params()
+
 if "track" in query_params:
-    # Get current datetime from PC's system time
+    # Log the timestamp when the resume link is clicked
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Log the time in session state
-    st.session_state['hits'].append(now)
-    
-    # Display a success message
-    st.success(f"✅ Resume opened at {now}!")
-    st.write("Hello! You've opened the resume!")
+    st.session_state['click_logs'].append(f"Resume opened at: {now}")
+    st.session_state['click_count'] += 1  # Increment click count
+    st.success(f"✅ Resume clicked at {now}!")
 
-# Time-based tracking and notifications: View total resume opens
-st.subheader("📈 Resume Open Analytics:")
-current_date = datetime.now().strftime("%Y-%m-%d")
-today_opens = [hit for hit in st.session_state['hits'] if hit.startswith(current_date)]
+# Display the number of clicks and the click logs
+st.subheader("🔔 Click Statistics:")
+st.write(f"Total Clicks: {st.session_state['click_count']}")
 
-# Show number of opens today
-st.write(f"📅 Today's Date: {current_date}")
-st.write(f"📊 Resume opened {len(today_opens)} times today.")
-
-# Show the list of all opens with timestamps
-st.subheader("📅 Full Resume Open Log (All Time):")
-if st.session_state['hits']:
-    for hit in st.session_state['hits']:
-        st.write(f"Opened at: {hit}")
+st.subheader("🔔 Click Logs:")
+if st.session_state['click_logs']:
+    for log in st.session_state['click_logs']:
+        st.info(log)
 else:
-    st.write("No opens yet.")
+    st.write("No clicks yet. Waiting for someone to click the resume link...")
+
+# Optionally, you can show a button to reset the logs (for testing purposes)
+if st.button("Reset Logs"):
+    st.session_state['click_logs'] = []
+    st.session_state['click_count'] = 0
+    st.write("Logs have been reset.")
