@@ -22,7 +22,7 @@ if resume_file:
     )
 
     # Set your app URL here
-    app_url = "https://your-app-name-your-username.streamlit.app"
+    app_url = "https://reume-tracker-dk.streamlit.app/"
 
     st.write("✅ Share this link with others to track views:")
 
