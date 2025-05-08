@@ -1,51 +1,39 @@
 import streamlit as st
 from datetime import datetime
 
-# Initialize session state for storing the click logs and count
-if 'click_logs' not in st.session_state:
-    st.session_state['click_logs'] = []
+# Initialize session state for click tracking
 if 'click_count' not in st.session_state:
-    st.session_state['click_count'] = 0
+    st.session_state.click_count = 0
+if 'logs' not in st.session_state:
+    st.session_state.logs = []
 
-# Title for the app
-st.title("📄 Resume Open Tracker")
+st.title("📈 Resume Click Tracker")
 
-# Instructions
-st.write("➡️ Track how many times your resume link is clicked.")
+st.write("Click the button below to open my resume. Each click will be logged with date and time!")
 
-# Your original Google Drive resume link (can be any link)
-RESUME_LINK = "https://drive.google.com/file/d/1cqj9BKunrcrytGSVYz8FRziXfIjSrOPx/view?usp=sharing"
+# Google Drive resume link
+resume_link = "https://drive.google.com/file/d/1cqj9BKunrcrytGSVYz8FRziXfIjSrOPx/view"
 
-# Custom tracking URL (you can share this link)
-TRACKING_URL = f"{RESUME_LINK}"
+# When the user clicks the button
+if st.button("📄 Open My Resume"):
+    # Increment click count
+    st.session_state.click_count += 1
+    
+    # Log the current datetime
+    click_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state.logs.append(f"Resume opened at: {click_time}")
 
-# Display the tracking URL (shareable link)
-st.subheader("🔗 Your Resume Link to Share:")
-st.code(TRACKING_URL)
+    # Open the resume in a new tab
+    js = f"window.open('{resume_link}', '_blank')"
+    st.components.v1.html(f"<script>{js}</script>")
 
-# When the link is clicked (query parameters check)
-query_params = st.experimental_get_query_params()
+# Show total clicks
+st.subheader(f"🔢 Total Clicks: {st.session_state.click_count}")
 
-if "track" in query_params:
-    # Log the timestamp when the resume link is clicked
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    st.session_state['click_logs'].append(f"Resume opened at: {now}")
-    st.session_state['click_count'] += 1  # Increment click count
-    st.success(f"✅ Resume clicked at {now}!")
-
-# Display the number of clicks and the click logs
-st.subheader("🔔 Click Statistics:")
-st.write(f"Total Clicks: {st.session_state['click_count']}")
-
-st.subheader("🔔 Click Logs:")
-if st.session_state['click_logs']:
-    for log in st.session_state['click_logs']:
-        st.info(log)
+# Show detailed logs
+st.subheader("🕒 Click Logs:")
+if st.session_state.logs:
+    for log in reversed(st.session_state.logs):
+        st.write(log)
 else:
-    st.write("No clicks yet. Waiting for someone to click the resume link...")
-
-# Optionally, you can show a button to reset the logs (for testing purposes)
-if st.button("Reset Logs"):
-    st.session_state['click_logs'] = []
-    st.session_state['click_count'] = 0
-    st.write("Logs have been reset.")
+    st.write("No clicks yet.")
