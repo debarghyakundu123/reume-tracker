@@ -1,42 +1,36 @@
 import streamlit as st
 from datetime import datetime
-import requests
 
 # Initialize session state to store hits
 if 'hits' not in st.session_state:
     st.session_state['hits'] = []
 
 # Title
-st.title("📄 PDF Open Tracker")
+st.title("📄 Link Click Tracker")
 
-st.write("➡️ This app tracks when your PDF is opened via a tracking URL.")
+st.write("➡️ This app tracks when someone clicks on the tracking link.")
 
 # Display current logs
-st.subheader("🔔 Notifications (PDF Open Logs):")
+st.subheader("🔔 Notifications (Click Logs):")
 if st.session_state['hits']:
     for hit in reversed(st.session_state['hits']):
-        st.info(f"PDF was opened at: {hit}")
+        st.info(f"Link was clicked at: {hit}")
 else:
-    st.write("No opens yet. Waiting for someone to open your PDF...")
+    st.write("No clicks yet. Waiting for someone to click the link...")
 
 # Set your app's public URL manually here 👇
-PUBLIC_APP_URL = "https://your-app-name.streamlit.app"  # Replace with your live app URL
+# Replace this with your actual Streamlit app URL when deployed
+PUBLIC_APP_URL = "https://your-app-name.streamlit.app"  # Use your Streamlit app URL
 
-# Example URL shortening service (You can also use Bitly API)
-def shorten_url(long_url):
-    # Using TinyURL API (or use Bitly's API for more advanced features)
-    response = requests.get(f"http://tinyurl.com/api-create.php?url={long_url}")
-    return response.text
+# Generate and display the shareable link
+st.subheader("🔗 Your Tracking Link:")
+tracking_link = f"{PUBLIC_APP_URL}?track=1"
+st.code(tracking_link)
 
-# Display the tracker link
-st.subheader("🔗 Your Tracking URL: ")
-tracker_url = f"{PUBLIC_APP_URL}?track=1"
-shortened_url = shorten_url(tracker_url)  # Shorten the link
-st.code(shortened_url)  # Display the shortened link
-
-# ✅ Updated: Use st.query_params (no more experimental)
-query_params = st.query_params
+# Check if the user clicked the link
+query_params = st.experimental_get_query_params()
 if "track" in query_params:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     st.session_state['hits'].append(now)
-    st.success(f"✅ Tracker ping received at {now}!")
+    st.success(f"✅ Link clicked at {now}!")
+    st.write("Hello!")
