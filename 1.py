@@ -1,39 +1,55 @@
 import streamlit as st
 from datetime import datetime
+from pyngrok import ngrok
 
-# Initialize session state for click tracking
-if 'click_count' not in st.session_state:
-    st.session_state.click_count = 0
+# Initialize session state log
 if 'logs' not in st.session_state:
     st.session_state.logs = []
 
-st.title("📈 Resume Click Tracker")
+# Create ngrok tunnel
+if 'public_url' not in st.session_state:
+    public_url = ngrok.connect(8501)
+    st.session_state.public_url = public_url
+    st.success(f'Your sharable resume link: {public_url}/?track=true')
 
-st.write("Click the button below to open my resume. Each click will be logged with date and time!")
+# Main app
+st.title("Resume Tracker 🚀")
 
-# Google Drive resume link
-resume_link = "https://drive.google.com/file/d/1cqj9BKunrcrytGSVYz8FRziXfIjSrOPx/view"
+# Upload resume
+resume_file = st.file_uploader("Upload your resume (PDF):")
 
-# When the user clicks the button
-if st.button("📄 Open My Resume"):
-    # Increment click count
-    st.session_state.click_count += 1
+if resume_file:
+    st.success("✅ Your resume is ready to share!")
+    st.write(f"Share this link: {st.session_state.public_url}/?track=true")
     
-    # Log the current datetime
-    click_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    st.session_state.logs.append(f"Resume opened at: {click_time}")
+    # Provide download button
+    st.download_button(
+        label="Download Resume",
+        data=resume_file,
+        file_name="My_Resume.pdf",
+        mime="application/pdf"
+    )
 
-    # Open the resume in a new tab
-    js = f"window.open('{resume_link}', '_blank')"
-    st.components.v1.html(f"<script>{js}</script>")
+# Track access
+query_params = st.experimental_get_query_params()
+if 'track' in query_params:
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    log_entry = f'Resume viewed at {timestamp}'
+    st.session_state.logs.append(log_entry)
+    st.write("Thanks for viewing the resume!")
+    # Optionally show the resume inline:
+    if resume_file:
+        st.download_button(
+            label="Download Resume",
+            data=resume_file,
+            file_name="My_Resume.pdf",
+            mime="application/pdf"
+        )
 
-# Show total clicks
-st.subheader(f"🔢 Total Clicks: {st.session_state.click_count}")
-
-# Show detailed logs
-st.subheader("🕒 Click Logs:")
+# Show logs
+st.subheader("📜 View Logs")
 if st.session_state.logs:
-    for log in reversed(st.session_state.logs):
+    for log in st.session_state.logs:
         st.write(log)
 else:
-    st.write("No clicks yet.")
+    st.info("No views yet.")
