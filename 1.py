@@ -20,7 +20,7 @@ else:
 
 # Set your app's public URL manually here 👇
 # Replace this with your actual Streamlit app URL when deployed
-PUBLIC_APP_URL = "https://your-app-name.streamlit.app"  # Use your Streamlit app URL
+PUBLIC_APP_URL = "https://reume-tracker-dk.streamlit.app/"  # Use your Streamlit app URL
 
 # Generate and display the shareable link
 st.subheader("🔗 Your Tracking Link:")
