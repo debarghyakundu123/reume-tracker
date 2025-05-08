@@ -16,11 +16,11 @@ st.write("➡️ Track how many times your resume link is clicked.")
 # Your original Google Drive resume link (can be any link)
 RESUME_LINK = "https://drive.google.com/file/d/1cqj9BKunrcrytGSVYz8FRziXfIjSrOPx/view?usp=sharing"
 
-# Create a custom tracking URL for the resume (without relying on Bitly or other services)
-TRACKING_URL = f"{st.experimental_get_url()}?track=1"
+# Custom tracking URL (you can share this link)
+TRACKING_URL = f"{RESUME_LINK}"
 
 # Display the tracking URL (shareable link)
-st.subheader("🔗 Your Custom Tracking Link:")
+st.subheader("🔗 Your Resume Link to Share:")
 st.code(TRACKING_URL)
 
 # When the link is clicked (query parameters check)
