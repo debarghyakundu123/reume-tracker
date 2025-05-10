@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime
 import os
 from urllib.parse import quote
+import base64  # Import base64
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'  # Directory to store uploaded resumes
@@ -13,7 +14,6 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 # Data Structures (using dictionaries for simplicity, can be replaced with a database)
 user_resumes = {}  # {user_id: {resume_id: {filename: ..., tracking_id: ..., views: 0, view_log: []}}}
-resume_views = {}  # {tracking_id: {views: 0, unique_viewers: set(), view_log: []}} #simplified, moved to user_resumes
 user_profiles = {} # {user_id: {profile_views: 0, unique_profile_viewers: set()}}
 
 
@@ -111,19 +111,38 @@ def display_resume(tracking_id):
     resume_info = get_resume_info(tracking_id)
     if resume_info:
         filepath = resume_info['filepath']
-        # st.write(f"Displaying resume: {resume_info['filename']}") #removed this line
-        # Instead of displaying, provide a download link (more robust)
+        #st.write(f"Displaying resume: {resume_info['filename']}")
+        # Instead of displaying,  open the file
         with open(filepath, "rb") as f:
             file_data = f.read()
-        st.download_button(
-            label=f"Download {resume_info['filename']}",
-            data=file_data,
-            file_name=resume_info['filename'],
-            mime="application/octet-stream",  # Generic MIME type
-        )
+        file_extension = get_file_extension(resume_info['filename']).lower()
 
+        if file_extension == ".pdf":
+            st.header(f"Displaying Resume: {resume_info['filename']}")
+            # Use base64 encoding to display PDF directly in the browser
+            base64_pdf = base64.b64encode(file_data).decode('utf-8')
+            pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="800" height="800" type="application/pdf"></iframe>'
+            st.markdown(pdf_display, unsafe_allow_html=True)
+
+        elif file_extension in [".doc", ".docx"]:
+            st.warning(
+                "Displaying DOC/DOCX files directly in the browser is not reliably supported.  "
+                "Please download the file to view it."
+            )
+            st.download_button(
+                label=f"Download {resume_info['filename']}",
+                data=file_data,
+                file_name=resume_info['filename'],
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                if file_extension == ".docx"
+                else "application/msword",
+            )
+        else:
+            st.error("Unsupported file type.  Please upload a PDF, DOC, or DOCX file.")
     else:
         st.error("Resume not found.")
+
+
 
 def track_profile_view():
     """Tracks a view of the user's profile."""
