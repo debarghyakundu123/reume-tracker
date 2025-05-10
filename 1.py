@@ -1,101 +1,251 @@
-import boto3
-import uuid
+import streamlit as st
+import hashlib
 import time
+import pandas as pd
 from datetime import datetime
-from PyPDF2 import PdfReader
-from docx import Document
+import os
+from urllib.parse import quote
 
-dynamodb = boto3.resource('dynamodb')
-s3 = boto3.client('s3')
+# Configuration
+UPLOAD_FOLDER = 'uploads'  # Directory to store uploaded resumes
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
-# DynamoDB Tables
-resumes_table = dynamodb.Table('Resumes')
-interactions_table = dynamodb.Table('ResumeInteractions')
+# Data Structures (using dictionaries for simplicity, can be replaced with a database)
+user_resumes = {}  # {user_id: {resume_id: {filename: ..., tracking_id: ..., views: 0, view_log: []}}}
+resume_views = {}  # {tracking_id: {views: 0, unique_viewers: set(), view_log: []}} #simplified, moved to user_resumes
+user_profiles = {} # {user_id: {profile_views: 0, unique_profile_viewers: set()}}
 
-def lambda_handler(event, context):
-    route = event['routeKey']
-    
-    if route == 'POST /upload':
-        return handle_upload(event)
-    elif route == 'GET /interactions/{resumeId}':
-        return handle_get_interactions(event)
+
+# Helper Functions
+def generate_tracking_id(user_id, filename):
+    """Generates a unique tracking ID for a resume.  Includes user ID."""
+    timestamp = str(time.time())
+    data = f"{user_id}-{filename}-{timestamp}".encode('utf-8') # Include user_id
+    return hashlib.sha256(data).hexdigest()[:16] # Shorten for URL
+
+def get_file_extension(filename):
+    """Gets the file extension of a filename."""
+    return os.path.splitext(filename)[1]
+
+def is_valid_file_type(file):
+    """Checks if the uploaded file is a valid type (PDF, DOC, DOCX)."""
+    allowed_extensions = ['.pdf', '.doc', '.docx']
+    return get_file_extension(file.name).lower() in allowed_extensions
+
+def store_resume(user_id, file):
+    """Stores the uploaded resume file and its metadata.
+
+    Handles file storage and updates the user_resumes dictionary.  Checks for
+    duplicate filenames and appends a unique identifier if necessary.
+    """
+    if user_id not in user_resumes:
+        user_resumes[user_id] = {}
+
+    # Check for duplicate filenames
+    filename = file.name
+    base_filename, ext = os.path.splitext(filename)
+    counter = 1
+    while any(resume_info['filename'] == filename for resume_info in user_resumes[user_id].values()):
+        filename = f"{base_filename}_{counter}{ext}"
+        counter += 1
+
+    # Generate tracking ID
+    tracking_id = generate_tracking_id(user_id, filename)
+
+    # Save the file
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    with open(filepath, "wb") as f:
+        f.write(file.read())
+
+    # Store resume metadata
+    resume_id = len(user_resumes[user_id]) + 1  # Simple ID, could use a UUID
+    user_resumes[user_id][resume_id] = {
+        'filename': filename,
+        'tracking_id': tracking_id,
+        'views': 0,
+        'view_log': [],
+        'filepath': filepath, # store the file path
+    }
+    return tracking_id, filename # Return filename
+
+def get_user_id():
+    """
+    Gets the user ID from the session state, or defaults to a hardcoded value for
+    demonstration purposes.  In a real application, this would come from
+    your authentication system.
+    """
+    # In a real application, you would get the user ID from the authentication system.
+    # For this example, we'll use a hardcoded user ID.
+    # if 'user_id' in st.session_state:
+    #     return st.session_state['user_id']
+    # else:
+    #     return 'test_user'  # Hardcoded user ID for demonstration
+    if 'user_id' not in st.session_state:
+        st.session_state['user_id'] = 'test_user'  # Default user
+    return st.session_state['user_id']
+
+def record_view(tracking_id, viewer_ip, referrer):
+    """Records a view of a resume.  Now updates the user_resumes dict."""
+    user_id = get_user_id() # added user_id
+    if user_id in user_resumes: #check user exists
+        for resume_id, resume_info in user_resumes[user_id].items():
+            if resume_info['tracking_id'] == tracking_id:
+                resume_info['views'] += 1
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                resume_info['view_log'].append({'timestamp': timestamp, 'viewer_ip': viewer_ip, 'referrer': referrer})
+                return True  # Indicate success
+    return False #Indicate failure
+
+def get_resume_info(tracking_id):
+    """Retrieves resume information based on the tracking ID. Now searches within user_resumes."""
+    user_id = get_user_id()
+    if user_id in user_resumes:
+        for resume_id, resume_info in user_resumes[user_id].items():
+            if resume_info['tracking_id'] == tracking_id:
+                return resume_info
+    return None
+
+def display_resume(tracking_id):
+    """Displays the resume file.  This is a simplified version."""
+    resume_info = get_resume_info(tracking_id)
+    if resume_info:
+        filepath = resume_info['filepath']
+        # st.write(f"Displaying resume: {resume_info['filename']}") #removed this line
+        # Instead of displaying, provide a download link (more robust)
+        with open(filepath, "rb") as f:
+            file_data = f.read()
+        st.download_button(
+            label=f"Download {resume_info['filename']}",
+            data=file_data,
+            file_name=resume_info['filename'],
+            mime="application/octet-stream",  # Generic MIME type
+        )
+
     else:
-        return {'statusCode': 404, 'body': 'Not Found'}
+        st.error("Resume not found.")
 
-def handle_upload(event):
-    # Get file from API Gateway
-    file_content = base64.b64decode(event['body'])
-    file_name = event['headers']['filename']
-    user_id = event['headers']['user-id']  # From Cognito in real implementation
-    
-    # Generate unique ID
-    resume_id = str(uuid.uuid4())
-    
-    # Upload to S3
-    s3.put_object(
-        Bucket='resume-tracking-bucket',
-        Key=f'resumes/{resume_id}',
-        Body=file_content
-    )
-    
-    # Parse resume
-    parsed_data = parse_resume(file_content, file_name)
-    
-    # Store metadata
-    resumes_table.put_item(Item={
-        'resumeId': resume_id,
-        'userId': user_id,
-        'fileName': file_name,
-        'uploadDate': datetime.now().isoformat(),
-        **parsed_data
-    })
-    
-    return {
-        'statusCode': 200,
-        'body': {'resumeId': resume_id}
-    }
+def track_profile_view():
+    """Tracks a view of the user's profile."""
+    user_id = get_user_id()
+    viewer_ip = st.request.remote_ip
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def parse_resume(file_content, file_name):
-    # Basic parsing example
-    text = ""
-    if file_name.endswith('.pdf'):
-        pdf = PdfReader(file_content)
-        text = " ".join([page.extract_text() for page in pdf.pages])
-    elif file_name.endswith('.docx'):
-        doc = Document(file_content)
-        text = " ".join([para.text for para in doc.paragraphs])
-    
-    return {
-        'skills': extract_skills(text),
-        'experience': extract_experience(text),
-        'education': extract_education(text)
-    }
+    if user_id not in user_profiles:
+        user_profiles[user_id] = {'profile_views': 0, 'unique_profile_viewers': set()}
 
-def handle_get_interactions(event):
-    resume_id = event['pathParameters']['resumeId']
-    
-    response = interactions_table.query(
-        KeyConditionExpression='resumeId = :rid',
-        ExpressionAttributeValues={':rid': resume_id}
-    )
-    
-    return {
-        'statusCode': 200,
-        'body': response['Items']
-    }
+    user_profiles[user_id]['profile_views'] += 1
+    user_profiles[user_id]['unique_profile_viewers'].add(viewer_ip)
+    st.session_state['last_profile_view'] = timestamp  # Store timestamp
 
-# Tracking Middleware (to be called on resume access)
-def track_interaction(resume_id, action='view'):
-    interactions_table.put_item(Item={
-        'interactionId': str(uuid.uuid4()),
-        'resumeId': resume_id,
-        'timestamp': datetime.now().isoformat(),
-        'action': action,
-        'viewerInfo': get_viewer_info()  # Implement based on auth system
-    })
+def display_tracking_info(tracking_id):
+    """Displays the tracking information for a given resume."""
+    resume_info = get_resume_info(tracking_id)
+    if resume_info:
+        st.header(f"Tracking Information for {resume_info['filename']}")
+        st.write(f"Tracking ID: {tracking_id}")
+        st.write(f"Total Views: {resume_info['views']}")
 
-# Helper functions (implement according to needs)
-def extract_skills(text): ...
-def extract_experience(text): ...
-def extract_education(text): ...
-def get_viewer_info(): ...
+        # Display view log
+        st.subheader("View Log")
+        if resume_info['view_log']:
+            df = pd.DataFrame(resume_info['view_log'])
+            st.dataframe(df)
+        else:
+            st.write("No views recorded yet.")
+    else:
+        st.error("Invalid Tracking ID")
+
+def display_all_resumes():
+    """Displays all resumes uploaded by the user."""
+    user_id = get_user_id()
+    if user_id in user_resumes:
+        st.header("Your Uploaded Resumes")
+        if user_resumes[user_id]: # Check if there are any resumes
+             for resume_id, resume_info in user_resumes[user_id].items():
+                st.subheader(resume_info['filename'])
+                st.write(f"Tracking ID: {resume_info['tracking_id']}")
+                st.write(f"Views: {resume_info['views']}")
+                # Create a download button
+                with open(resume_info['filepath'], "rb") as f:
+                    file_data = f.read()
+                st.download_button(
+                    label=f"Download {resume_info['filename']}",
+                    data=file_data,
+                    file_name=resume_info['filename'],
+                    mime="application/octet-stream",  # Generic MIME type
+                )
+
+                # Add a button to view tracking info for each resume
+                if st.button(f"View Tracking Info for {resume_info['filename']}", key=f"track-{resume_info['tracking_id']}"):
+                    display_tracking_info(resume_info['tracking_id'])
+        else:
+            st.write("You have not uploaded any resumes yet.")
+    else:
+        st.write("You have not uploaded any resumes yet.") #moved here
+
+def display_profile_views():
+    """Displays the view count for the user's profile."""
+    user_id = get_user_id()
+    if user_id in user_profiles:
+        st.header("Your Profile Views")
+        st.write(f"Total Profile Views: {user_profiles[user_id]['profile_views']}")
+        st.write(f"Unique Profile Viewers: {len(user_profiles[user_id]['unique_profile_viewers'])}")
+        if 'last_profile_view' in st.session_state:
+            st.write(f"Last Profile View: {st.session_state['last_profile_view']}")
+        else:
+            st.write("No profile views recorded yet.")
+    else:
+        st.write("No profile views recorded yet.")
+
+def main():
+    """Main function for the Streamlit app."""
+    st.title("Intelligent Resume Tracking System")
+
+    # Get User ID
+    user_id = get_user_id()
+
+    # Sidebar for Navigation
+    menu = ["Upload Resume", "View Resumes", "View Profile", "Track Resume"]
+    choice = st.sidebar.selectbox("Menu", menu)
+
+    if choice == "Upload Resume":
+        st.header("Upload Your Resume")
+        uploaded_file = st.file_uploader("Choose a file", type=['pdf', 'doc', 'docx'])
+        if uploaded_file is not None:
+            if is_valid_file_type(uploaded_file):
+                tracking_id, filename = store_resume(user_id, uploaded_file)
+                st.success(f"Resume uploaded successfully!  Use this tracking ID: {tracking_id} to track views. Filename: {filename}")
+                # Display the tracking link (made it clickable)
+                tracking_link = f"/?tracking_id={tracking_id}"  # Simplified URL
+                st.markdown(f"Share this link to track views: [{tracking_link}]({tracking_link})")
+            else:
+                st.error("Invalid file type. Please upload a PDF, DOC, or DOCX file.")
+
+    elif choice == "View Resumes":
+        display_all_resumes()
+
+    elif choice == "View Profile":
+        track_profile_view()
+        display_profile_views()
+
+    elif choice == "Track Resume":
+        st.header("Track Resume Views")
+        tracking_id = st.text_input("Enter the tracking ID of the resume you want to track:")
+        if tracking_id:
+            display_tracking_info(tracking_id)
+
+    # Handle tracking via URL parameter (for shared links)
+    query_params = st.experimental_get_query_params() # changed to st.experimental_get_query_params()
+    if "tracking_id" in query_params:
+        tracking_id = query_params["tracking_id"][0]
+        # st.write(f"Tracking ID from URL: {tracking_id}") #debug
+        #st.stop() #debug
+        viewer_ip = st.request.remote_ip
+        referrer = st.session_state.get('HTTP_REFERER', 'Direct') #  get the referrer
+        record_view(tracking_id, viewer_ip, referrer) #record view
+        display_resume(tracking_id) #show resume
+
+
+if __name__ == "__main__":
+    main()
