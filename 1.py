@@ -1,55 +1,85 @@
 import streamlit as st
-from datetime import datetime
+import threading
+import fitz  # PyMuPDF
+from flask import Flask, send_file, request
+import time
+import csv
+import os
 
-# Initialize session state logs and view counter
-if 'view_count' not in st.session_state:
-    st.session_state.view_count = 0
-if 'logs' not in st.session_state:
-    st.session_state.logs = []
+# ---- Flask App for Tracking ----
+app = Flask(__name__)
+log_file = "tracking_logs.csv"
 
-st.title("Resume Tracker 🚀")
+if not os.path.exists(log_file):
+    with open(log_file, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Timestamp", "IP", "User-Agent"])
 
-# Upload resume
-resume_file = st.file_uploader("Upload your resume (PDF):")
+@app.route('/track/<tracker_id>.png')
+def track(tracker_id):
+    ip = request.remote_addr
+    user_agent = request.headers.get('User-Agent')
+    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
 
-if resume_file:
-    st.success("✅ Your resume is ready to share!")
+    # Log the tracking event
+    with open(log_file, 'a', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow([timestamp, ip, user_agent])
 
-    # Provide download button
-    st.download_button(
-        label="Download Resume",
-        data=resume_file,
-        file_name="My_Resume.pdf",
-        mime="application/pdf"
-    )
+    # Send a 1x1 transparent pixel
+    return send_file('pixel.png', mimetype='image/png')
 
-    # Generate unique tracking URL
-    app_url = "https://your-app-name-your-username.streamlit.app"
-    tracking_url = f"{app_url}?track=true"
+# ---- Start Flask App in Thread ----
+def run_flask():
+    app.run(host='0.0.0.0', port=5000)
 
-    st.write("✅ Share this link with others to track views:")
+threading.Thread(target=run_flask, daemon=True).start()
 
-    # Display the link that users can share
-    st.code(tracking_url)
+# ---- Streamlit App ----
+st.title("📄 Resume Tracking System")
+st.write("Upload your resume to embed a tracking link and monitor views.")
 
-# Track access via query parameters
-query_params = st.experimental_get_query_params()
-if 'track' in query_params:
-    # Increment view count when the resume page is accessed
-    st.session_state.view_count += 1
+uploaded_file = st.file_uploader("Upload your resume (PDF only)", type=['pdf'])
 
-    # Log the view with timestamp
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    log_entry = f'Resume viewed at {timestamp}'
-    st.session_state.logs.append(log_entry)
-    
-    st.write("✅ Thanks for viewing the resume!")
+if uploaded_file is not None:
+    # Save original file
+    with open("original_resume.pdf", "wb") as f:
+        f.write(uploaded_file.read())
 
-# Show total views and logs
-st.subheader("📜 View Logs")
-if st.session_state.view_count > 0:
-    st.write(f"Total views: {st.session_state.view_count}")
-    for log in st.session_state.logs:
-        st.write(log)
+    # Open PDF and insert tracking pixel
+    doc = fitz.open("original_resume.pdf")
+    page = doc[0]  # insert on the first page
+
+    # Set tracking image URL (update with your real server URL)
+    tracking_url = "http://localhost:5000/track/unique123.png"
+
+    img_rect = fitz.Rect(50, 50, 52, 52)  # small space
+    page.insert_image(img_rect, filename="pixel.png", overlay=True, keep_proportion=True)
+
+    # Save modified PDF
+    tracked_filename = "tracked_resume.pdf"
+    doc.save(tracked_filename)
+    doc.close()
+
+    st.success("✅ Tracking pixel embedded!")
+    with open(tracked_filename, "rb") as f:
+        st.download_button("Download Tracked Resume", f, file_name="tracked_resume.pdf")
+
+st.header("📊 Tracking Dashboard")
+
+if os.path.exists(log_file):
+    with open(log_file, 'r') as f:
+        reader = csv.reader(f)
+        logs = list(reader)
+    if len(logs) > 1:
+        st.table(logs)
+    else:
+        st.info("No tracking events yet.")
 else:
-    st.info("No views yet.")
+    st.info("Tracking system not initialized.")
+
+# ---- Add Pixel Image if Missing ----
+if not os.path.exists('pixel.png'):
+    from PIL import Image
+    img = Image.new('RGBA', (1, 1), (0, 0, 0, 0))
+    img.save('pixel.png')
