@@ -126,16 +126,15 @@ with tab1:
             file_details = st.session_state.uploaded_file_details
             link_id = generate_trackable_link_persistent(file_details['path'], file_details['name'])
 
-            # Construct the trackable URL using st.query_params
-            base_app_url = st.experimental_get_query_params().get("streamlit_base_url", st.runtime.get_config().get("server.address", "http://localhost") + ":" + str(st.runtime.get_config().get("server.port", 8501)))
-            trackable_url_params = {"resume_id": link_id}
-            full_trackable_url = f"{base_app_url}/?{'&'.join([f'{k}={v}' for k, v in trackable_url_params.items()])}"
+            # Construct the trackable URL
+            # We'll assume the user knows the base URL of their running Streamlit app.
+            # We just provide the query parameter.
+            trackable_url_param = f"?resume_id={link_id}"
 
-
-            st.subheader("Share this link:")
-            st.code(full_trackable_url)
-            st.info(f"When this link is opened, the view count will be updated in the 'Tracking Dashboard'.")
-            st.warning(f"Ensure this Streamlit app is running and accessible at '{base_app_url}' for the link to work.")
+            st.subheader("Share this link (append to your app's URL):")
+            st.code(trackable_url_param)
+            st.info(f"When a user opens your Streamlit app's URL with '{trackable_url_param}' appended, the view count will be updated in the 'Tracking Dashboard'.")
+            st.warning("You need to share your Streamlit app's base URL followed by the code above (e.g., `your_app_url{trackable_url_param}`).")
 with tab2:
     st.header("📊 Resume View Tracking")
 
