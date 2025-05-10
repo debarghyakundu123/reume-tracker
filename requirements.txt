@@ -1,4 +1,3 @@
 streamlit
 
-fitz
-frontend
+pymupdf
