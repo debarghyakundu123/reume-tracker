@@ -36,7 +36,7 @@ if uploaded_file is not None:
 
     # Generate a unique tracker ID (can be enhanced to be dynamic)
     tracker_id = "unique123"
-    streamlit_url = "YOUR_STREAMLIT_APP_URL"  # Replace with your actual Streamlit app URL
+    streamlit_url = "https://reume-tracker-dk.streamlit.app/"  # Replace with your actual Streamlit app URL
     tracking_text = f"This resume is tracked. Verify here: {streamlit_url}/?track={tracker_id}"  # Text to insert
 
     doc = pymupdf.open("original_resume.pdf")
