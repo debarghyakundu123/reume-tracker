@@ -60,7 +60,7 @@ def serve_resume_and_track(link_id):
     if link_id in tracking_data:
         resume_info = tracking_data[link_id]
 
-        # --- Track the view ---
+        # --- Track the view BEFORE serving ---
         resume_info['view_count'] += 1
         current_time = datetime.now().isoformat()
         resume_info['last_viewed_timestamp'] = current_time
@@ -70,17 +70,16 @@ def serve_resume_and_track(link_id):
         # --- Serve the file for download ---
         try:
             with open(resume_info['file_path'], "rb") as fp:
-                # The label can indicate it's being tracked if you want
                 st.download_button(
                     label=f"Download {resume_info['original_name']}",
                     data=fp,
                     file_name=resume_info['original_name'],
                     mime="application/pdf" # Or the appropriate MIME type
                 )
-            st.success(f"Displaying '{resume_info['original_name']}'. Access has been logged.")
+            st.success(f"'{resume_info['original_name']}' download initiated. Access has been logged.")
             st.caption(f"This view was recorded at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            # You might want to hide the main dashboard elements when serving a file
-            # st.experimental_set_query_params() # Clear query params after serving if desired
+            # We no longer stop here, allowing the dashboard to render.
+            # The download button will trigger a separate browser action.
         except FileNotFoundError:
             st.error("Error: Resume file not found on server. It might have been moved or deleted.")
         except Exception as e:
@@ -98,10 +97,7 @@ resume_id_to_track = query_params.get("resume_id", [None])[0]
 
 if resume_id_to_track:
     serve_resume_and_track(resume_id_to_track)
-    # Stop further rendering of the main page if we are serving/tracking a resume
-    # This prevents the main dashboard from showing below the download button.
-    st.stop()
-
+    # We do NOT stop here anymore. The download button handles the file.
 
 # --- Main Dashboard Area ---
 tab1, tab2, tab3 = st.tabs(["📤 Upload & Generate Link", "📊 Tracking Dashboard", "⚙️ Manage Data"])
@@ -132,19 +128,15 @@ with tab1:
 
             # Try to construct a full URL
             # This is highly dependent on your deployment environment
-            # For local:
-            base_app_url = "https://reume-tracker-dk.streamlit.app/" # Streamlit's default local URL
-            # For Streamlit Community Cloud, it's harder to get programmatically without more context
-            # You might need to manually input your base Streamlit app URL if deployed
-            
+            # For Streamlit Community Cloud, it's usually based on your app name
+            base_app_url = st.experimental_get_query_params().get("streamlit_base_url", "http://localhost:8501") # Placeholder, adjust as needed
             trackable_url_param = f"?resume_id={link_id}"
             full_trackable_url = f"{base_app_url}/{trackable_url_param}"
-
 
             st.subheader("Share this link:")
             st.code(full_trackable_url)
             st.info(f"When this link is opened, the view count will be updated in the 'Tracking Dashboard'.")
-            st.warning("Ensure this Streamlit app is running and accessible at the base URL for the link to work.")
+            st.warning(f"Ensure this Streamlit app is running and accessible at '{base_app_url}' for the link to work.")
 
 with tab2:
     st.header("📊 Resume View Tracking")
@@ -156,7 +148,7 @@ with tab2:
 
     if tracking_data:
         st.markdown(f"Last dashboard update: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`")
-        
+
         # Prepare data for display (e.g., in a more table-friendly format)
         display_data = []
         for link_id, data in tracking_data.items():
@@ -168,7 +160,7 @@ with tab2:
                 "Link ID": link_id,
                 # "Trackable Link": f"{base_app_url}/?resume_id={link_id}" # Requires base_app_url to be defined here too
             })
-        
+
         if display_data:
             st.dataframe(display_data, use_container_width=True)
 
@@ -183,7 +175,7 @@ with tab2:
                         st.caption("No views recorded yet.")
         else:
             st.info("No resumes are currently being tracked. Upload a resume and generate a link first.")
-            
+
     else:
         st.info("No tracking data found. Upload a resume and generate a trackable link to begin.")
 
@@ -201,8 +193,8 @@ with tab3:
             del tracking_data[selected_id_to_delete]
             save_tracking_data(tracking_data)
             # if os.path.exists(file_to_delete_path):
-            #     os.remove(file_to_delete_path)
-            #     st.success(f"Deleted resume file '{file_to_delete_path}' and its tracking data.")
+            #    os.remove(file_to_delete_path)
+            #    st.success(f"Deleted resume file '{file_to_delete_path}' and its tracking data.")
             # else:
             st.success(f"Deleted tracking data for link ID '{selected_id_to_delete}'.")
             st.rerun()
@@ -212,7 +204,7 @@ with tab3:
                 save_tracking_data({}) # Clears the data
                 # Optionally clear the resumes directory too, but be very careful
                 # for filename in os.listdir(RESUMES_DIR):
-                #     os.remove(os.path.join(RESUMES_DIR, filename))
+                #    os.remove(os.path.join(RESUMES_DIR, filename))
                 st.success("All tracking data has been deleted.")
                 st.rerun()
     else:
