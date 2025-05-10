@@ -1,6 +1,2 @@
 streamlit
-boto3    
-uuid
-PyPDF2
-docx
-exceptions
+pandas
