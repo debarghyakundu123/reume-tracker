@@ -1,67 +1,101 @@
-import streamlit as st
-import pymupdf  # ✅ Correct PyMuPDF import
-import csv
+import boto3
+import uuid
 import time
-import os
-from urllib.parse import urlparse, parse_qs
+from datetime import datetime
+from PyPDF2 import PdfReader
+from docx import Document
 
-st.set_page_config(page_title="Resume Tracker", layout="wide")
-st.title("📄 Resume Tracking System")
+dynamodb = boto3.resource('dynamodb')
+s3 = boto3.client('s3')
 
-# ---- Set Up Log File ----
-log_file = "tracking_logs.csv"
-if not os.path.exists(log_file):
-    with open(log_file, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(["Timestamp", "Visitor Info"])
+# DynamoDB Tables
+resumes_table = dynamodb.Table('Resumes')
+interactions_table = dynamodb.Table('ResumeInteractions')
 
-# ---- Check for Tracking Link Visit ----
-query_params = st.experimental_get_query_params()
-if 'track' in query_params:
-    tracker_id = query_params['track'][0]
-    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-    visitor_info = f"Tracker ID: {tracker_id}"
-    with open(log_file, 'a', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([timestamp, visitor_info])
-    st.success(f"✅ Thanks for checking this resume! (ID: {tracker_id})")
-
-# ---- Upload Resume Section ----
-st.header("Upload and Track Your Resume")
-uploaded_file = st.file_uploader("Upload your resume (PDF only)", type=['pdf'])
-
-if uploaded_file is not None:
-    with open("original_resume.pdf", "wb") as f:
-        f.write(uploaded_file.read())
-
-    # Generate a unique tracker ID (can be enhanced to be dynamic)
-    tracker_id = "unique123"
-    streamlit_url = "https://reume-tracker-dk.streamlit.app/"  # Replace with your actual Streamlit app URL
-    tracking_text = f"This resume is tracked. Verify here: {streamlit_url}/?track={tracker_id}"  # Text to insert
-
-    doc = pymupdf.open("original_resume.pdf")
-    page = doc[0]
-
-    # Insert the tracking text at the top of the first page
-    page.insert_text((50, 50), tracking_text, fontsize=8, color=(0, 0, 1))
-
-    tracked_filename = "tracked_resume.pdf"
-    doc.save(tracked_filename)
-    doc.close()
-
-    st.success("✅ Tracking link embedded into your resume!")
-    with open(tracked_filename, "rb") as f:
-        st.download_button("Download Tracked Resume", f, file_name="tracked_resume.pdf")
-
-# ---- Tracking Dashboard ----
-st.header("📊 Tracking Dashboard")
-if os.path.exists(log_file):
-    with open(log_file, 'r') as f:
-        reader = csv.reader(f)
-        logs = list(reader)
-    if len(logs) > 1:
-        st.table(logs)
+def lambda_handler(event, context):
+    route = event['routeKey']
+    
+    if route == 'POST /upload':
+        return handle_upload(event)
+    elif route == 'GET /interactions/{resumeId}':
+        return handle_get_interactions(event)
     else:
-        st.info("No tracking events yet.")
-else:
-    st.info("Tracking system not initialized.")
+        return {'statusCode': 404, 'body': 'Not Found'}
+
+def handle_upload(event):
+    # Get file from API Gateway
+    file_content = base64.b64decode(event['body'])
+    file_name = event['headers']['filename']
+    user_id = event['headers']['user-id']  # From Cognito in real implementation
+    
+    # Generate unique ID
+    resume_id = str(uuid.uuid4())
+    
+    # Upload to S3
+    s3.put_object(
+        Bucket='resume-tracking-bucket',
+        Key=f'resumes/{resume_id}',
+        Body=file_content
+    )
+    
+    # Parse resume
+    parsed_data = parse_resume(file_content, file_name)
+    
+    # Store metadata
+    resumes_table.put_item(Item={
+        'resumeId': resume_id,
+        'userId': user_id,
+        'fileName': file_name,
+        'uploadDate': datetime.now().isoformat(),
+        **parsed_data
+    })
+    
+    return {
+        'statusCode': 200,
+        'body': {'resumeId': resume_id}
+    }
+
+def parse_resume(file_content, file_name):
+    # Basic parsing example
+    text = ""
+    if file_name.endswith('.pdf'):
+        pdf = PdfReader(file_content)
+        text = " ".join([page.extract_text() for page in pdf.pages])
+    elif file_name.endswith('.docx'):
+        doc = Document(file_content)
+        text = " ".join([para.text for para in doc.paragraphs])
+    
+    return {
+        'skills': extract_skills(text),
+        'experience': extract_experience(text),
+        'education': extract_education(text)
+    }
+
+def handle_get_interactions(event):
+    resume_id = event['pathParameters']['resumeId']
+    
+    response = interactions_table.query(
+        KeyConditionExpression='resumeId = :rid',
+        ExpressionAttributeValues={':rid': resume_id}
+    )
+    
+    return {
+        'statusCode': 200,
+        'body': response['Items']
+    }
+
+# Tracking Middleware (to be called on resume access)
+def track_interaction(resume_id, action='view'):
+    interactions_table.put_item(Item={
+        'interactionId': str(uuid.uuid4()),
+        'resumeId': resume_id,
+        'timestamp': datetime.now().isoformat(),
+        'action': action,
+        'viewerInfo': get_viewer_info()  # Implement based on auth system
+    })
+
+# Helper functions (implement according to needs)
+def extract_skills(text): ...
+def extract_experience(text): ...
+def extract_education(text): ...
+def get_viewer_info(): ...
