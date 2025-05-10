@@ -236,7 +236,7 @@ def main():
             display_tracking_info(tracking_id)
 
     # Handle tracking via URL parameter (for shared links)
-    query_params = st.experimental_get_query_params() # changed to st.experimental_get_query_params()
+    query_params = st.query_params # changed to st.query_params()
     if "tracking_id" in query_params:
         tracking_id = query_params["tracking_id"][0]
         # st.write(f"Tracking ID from URL: {tracking_id}") #debug
