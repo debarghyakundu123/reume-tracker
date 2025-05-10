@@ -133,7 +133,7 @@ with tab1:
             # Try to construct a full URL
             # This is highly dependent on your deployment environment
             # For local:
-            base_app_url = "http://localhost:8501" # Streamlit's default local URL
+            base_app_url = "https://reume-tracker-dk.streamlit.app/" # Streamlit's default local URL
             # For Streamlit Community Cloud, it's harder to get programmatically without more context
             # You might need to manually input your base Streamlit app URL if deployed
             
