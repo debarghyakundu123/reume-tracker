@@ -200,6 +200,20 @@ def display_profile_views():
     else:
         st.write("No profile views recorded yet.")
 
+def get_viewer_ip():
+    """
+    Gets the viewer's IP address.  This function attempts to get the IP address
+    from the X-Forwarded-For header if available (which is common when the
+    Streamlit app is behind a proxy), and falls back to 'Unknown' if not.
+    """
+    # Try to get the IP address from the X-Forwarded-For header
+    forwarded_for = st.session_state.get('X-Forwarded-For')
+    if forwarded_for:
+        # If there are multiple IPs in the header, take the first one (leftmost)
+        viewer_ip = forwarded_for.split(',')[0].strip()
+    else:
+        viewer_ip = "Unknown"
+    return viewer_ip
 def main():
     """Main function for the Streamlit app."""
     st.title("Intelligent Resume Tracking System")
@@ -209,10 +223,8 @@ def main():
 
     # Get Viewer IP and store it in session state
     # This is the workaround for not having st.request
-    viewer_ip = st.session_state.get('viewer_ip')
-    if viewer_ip is None:
-        viewer_ip = st.request.remote_ip if st.request else "Unknown" # added a check if st.request exists
-        st.session_state['viewer_ip'] = viewer_ip
+    viewer_ip =  get_viewer_ip() #st.session_state.get('viewer_ip') #changed to use get_viewer_ip()
+    st.session_state['viewer_ip'] = viewer_ip
 
     # Sidebar for Navigation
     menu = ["Upload Resume", "View Resumes", "View Profile", "Track Resume"]
@@ -258,4 +270,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
