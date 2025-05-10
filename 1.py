@@ -1,305 +1,219 @@
 import streamlit as st
-import hashlib
-import time
-import pandas as pd
-from datetime import datetime
+import uuid
 import os
-import json
-import base64
+from datetime import datetime
+import json # For storing tracking data
 
-# Configuration
-UPLOAD_FOLDER = 'uploads'  # Directory to store uploaded resumes
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
-DATABASE_FILE = 'resume_data.json'  # File to store resume data
+# --- Configuration ---
+RESUMES_DIR = "resumes"
+TRACKING_DATA_FILE = "tracking_data.json"
 
-# Load and Save Data Functions
-def load_data():
-    """Loads resume data from the JSON file."""
-    if os.path.exists(DATABASE_FILE):
-        with open(DATABASE_FILE, 'r') as f:
-            try:
-                data = json.load(f)
-                return data
-            except json.JSONDecodeError:
-                print("Error decoding JSON. Returning an empty dictionary.")
-                return {}
-    else:
-        return {}
+# --- Helper Functions ---
 
-def save_data(data):
-    """Saves resume data to the JSON file."""
-    with open(DATABASE_FILE, 'w') as f:
+def load_tracking_data():
+    """Loads tracking data from the JSON file."""
+    if os.path.exists(TRACKING_DATA_FILE):
+        try:
+            with open(TRACKING_DATA_FILE, 'r') as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            return {} # Return empty if file is corrupted
+    return {}
+
+def save_tracking_data(data):
+    """Saves tracking data to the JSON file."""
+    with open(TRACKING_DATA_FILE, 'w') as f:
         json.dump(data, f, indent=4)
 
-# Data Structures
-user_resumes = load_data()  # Load data from JSON file
-user_profiles = {}
+def initialize_storage():
+    """Initializes resumes directory and tracking file if they don't exist."""
+    os.makedirs(RESUMES_DIR, exist_ok=True)
+    if not os.path.exists(TRACKING_DATA_FILE):
+        save_tracking_data({})
 
-# Helper Functions
-def generate_tracking_id(user_id, filename):
-    """Generates a unique tracking ID for a resume. Includes user ID."""
-    timestamp = str(time.time())
-    data = f"{user_id}-{filename}-{timestamp}".encode('utf-8')
-    return hashlib.sha256(data).hexdigest()[:16]
+# Call initialization at the start
+initialize_storage()
 
-def get_file_extension(filename):
-    """Gets the file extension of a filename."""
-    return os.path.splitext(filename)[1]
+# --- Main Application Logic ---
 
-def is_valid_file_type(file):
-    """Checks if the uploaded file is a valid type (PDF, DOC, DOCX)."""
-    allowed_extensions = ['.pdf', '.doc', '.docx']
-    return get_file_extension(file.name).lower() in allowed_extensions
+if 'uploaded_file_details' not in st.session_state:
+    st.session_state.uploaded_file_details = None
 
-def store_resume(user_id, file):
-    """Stores the uploaded resume file and its metadata.
-
-    Handles file storage, updates the user_resumes dictionary, and saves to JSON.
-    Checks for duplicate filenames and appends a unique identifier if necessary.
-    """
-    global user_resumes  # Declare user_resumes as global
-    if user_id not in user_resumes:
-        user_resumes[user_id] = {}
-
-    # Check for duplicate filenames
-    filename = file.name
-    base_filename, ext = os.path.splitext(filename)
-    counter = 1
-    while any(resume_info['filename'] == filename for resume_info in user_resumes[user_id].values()):
-        filename = f"{base_filename}_{counter}{ext}"
-        counter += 1
-
-    # Generate tracking ID
-    tracking_id = generate_tracking_id(user_id, filename)
-
-    # Save the file
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    with open(filepath, "wb") as f:
-        f.write(file.read())
-
-    # Store resume metadata
-    resume_id = len(user_resumes[user_id]) + 1  # Simple ID, could use a UUID
-    user_resumes[user_id][resume_id] = {
-        'filename': filename,
-        'tracking_id': tracking_id,
-        'views': 0,
-        'view_log': [],
-        'filepath': filepath,
+def generate_trackable_link_persistent(file_path, original_name):
+    """Generates a unique trackable link ID and stores file info persistently."""
+    link_id = str(uuid.uuid4())
+    tracking_data = load_tracking_data()
+    tracking_data[link_id] = {
+        'file_path': file_path,
+        'original_name': original_name,
+        'view_count': 0,
+        'created_timestamp': datetime.now().isoformat(),
+        'last_viewed_timestamp': None,
+        'view_timestamps': [] # List to store each view time
     }
-    save_data(user_resumes)  # Save to JSON
-    return tracking_id, filename
+    save_tracking_data(tracking_data)
+    return link_id
 
-def get_user_id():
-    """
-    Gets the user ID from the session state, or defaults to a hardcoded value for
-    demonstration purposes.
-    """
-    if 'user_id' not in st.session_state:
-        st.session_state['user_id'] = 'test_user'
-    return st.session_state['user_id']
+def serve_resume_and_track(link_id):
+    """Logs access persistently and serves the resume."""
+    tracking_data = load_tracking_data()
+    if link_id in tracking_data:
+        resume_info = tracking_data[link_id]
 
-def record_view(tracking_id, viewer_ip, referrer):
-    """Records a view of a resume. Updates the user_resumes dictionary and saves to JSON."""
-    global user_resumes  # Declare user_resumes as global
-    user_id = get_user_id()
-    if user_id in user_resumes:
-        for resume_id, resume_info in user_resumes[user_id].items():
-            if resume_info['tracking_id'] == tracking_id:
-                resume_info['views'] += 1
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                resume_info['view_log'].append({'timestamp': timestamp, 'viewer_ip': viewer_ip, 'referrer': referrer})
-                save_data(user_resumes)  # Save updated data
-                return True
-    return False
+        # --- Track the view ---
+        resume_info['view_count'] += 1
+        current_time = datetime.now().isoformat()
+        resume_info['last_viewed_timestamp'] = current_time
+        resume_info['view_timestamps'].append(current_time)
+        save_tracking_data(tracking_data) # Save updated data
 
-def get_resume_info(tracking_id):
-    """Retrieves resume information based on the tracking ID."""
-    user_id = get_user_id()
-    if user_id in user_resumes:
-        for resume_id, resume_info in user_resumes[user_id].items():
-            if resume_info['tracking_id'] == tracking_id:
-                return resume_info
-    return None
-
-def display_resume(tracking_id):
-    """Displays the resume file.  Handles PDF, DOC, and DOCX."""
-    resume_info = get_resume_info(tracking_id)
-    if resume_info:
-        filepath = resume_info['filepath']
-        with open(filepath, "rb") as f:
-            file_data = f.read()
-        file_extension = get_file_extension(resume_info['filename']).lower()
-
-        if file_extension == ".pdf":
-            st.header(f"Displaying Resume: {resume_info['filename']}")
-            base64_pdf = base64.b64encode(file_data).decode('utf-8')
-            pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="800" height="800" type="application/pdf"></iframe>'
-            st.markdown(pdf_display, unsafe_allow_html=True)
-        elif file_extension in [".doc", ".docx"]:
-            st.warning(
-                "Displaying DOC/DOCX files directly in the browser is not reliably supported.  "
-                "Please download the file to view it."
-            )
-            st.download_button(
-                label=f"Download {resume_info['filename']}",
-                data=file_data,
-                file_name=resume_info['filename'],
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                if file_extension == ".docx"
-                else "application/msword",
-            )
-        else:
-            st.error("Unsupported file type.  Please upload a PDF, DOC, or DOCX file.")
-    else:
-        st.error("Resume not found.")
-
-
-
-def track_profile_view():
-    """Tracks a view of the user's profile."""
-    user_id = get_user_id()
-    viewer_ip = st.session_state.get('viewer_ip', 'Unknown')
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    if user_id not in user_profiles:
-        user_profiles[user_id] = {'profile_views': 0, 'unique_profile_viewers': set()}
-
-    user_profiles[user_id]['profile_views'] += 1
-    user_profiles[user_id]['unique_profile_viewers'].add(viewer_ip)
-    st.session_state['last_profile_view'] = timestamp
-    return user_profiles[user_id]['profile_views'], len(user_profiles[user_id]['unique_profile_viewers'])
-
-def display_tracking_info(tracking_id):
-    """Displays the tracking information for a given resume."""
-    resume_info = get_resume_info(tracking_id)
-    if resume_info:
-        st.header(f"Tracking Information for {resume_info['filename']}")
-        st.write(f"Tracking ID: {tracking_id}")
-        st.write(f"Total Views: {resume_info['views']}")
-
-        # Display view log
-        st.subheader("View Log")
-        if resume_info['view_log']:
-            df = pd.DataFrame(resume_info['view_log'])
-            st.dataframe(df)
-        else:
-            st.write("No views recorded yet.")
-    else:
-        st.error("Invalid Tracking ID")
-
-
-
-def display_all_resumes():
-    """Displays all resumes uploaded by the user."""
-    user_id = get_user_id()
-    if user_id in user_resumes:
-        st.header("Your Uploaded Resumes")
-        if user_resumes[user_id]:
-            for resume_id, resume_info in user_resumes[user_id].items():
-                st.subheader(resume_info['filename'])
-                st.write(f"Tracking ID: {resume_info['tracking_id']}")
-                st.write(f"Views: {resume_info['views']}")
-                # Display the tracking link
-                tracking_link = f"/?tracking_id={resume_info['tracking_id']}"
-                st.markdown(f"Tracking Link: [{tracking_link}]({tracking_link})")
-
-                # Create a download button
-                with open(resume_info['filepath'], "rb") as f:
-                    file_data = f.read()
+        # --- Serve the file for download ---
+        try:
+            with open(resume_info['file_path'], "rb") as fp:
+                # The label can indicate it's being tracked if you want
                 st.download_button(
-                    label=f"Download {resume_info['filename']}",
-                    data=file_data,
-                    file_name=resume_info['filename'],
-                    mime="application/octet-stream",
+                    label=f"Download {resume_info['original_name']}",
+                    data=fp,
+                    file_name=resume_info['original_name'],
+                    mime="application/pdf" # Or the appropriate MIME type
                 )
-                # Add a button to view tracking info for each resume
-                if st.button(f"View Tracking Info for {resume_info['filename']}", key=f"track-{resume_info['tracking_id']}"):
-                    display_tracking_info(resume_info['tracking_id'])
+            st.success(f"Displaying '{resume_info['original_name']}'. Access has been logged.")
+            st.caption(f"This view was recorded at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            # You might want to hide the main dashboard elements when serving a file
+            # st.experimental_set_query_params() # Clear query params after serving if desired
+        except FileNotFoundError:
+            st.error("Error: Resume file not found on server. It might have been moved or deleted.")
+        except Exception as e:
+            st.error(f"An error occurred while trying to serve the resume: {e}")
+    else:
+        st.error("Invalid or expired resume link.")
+
+# --- Streamlit App UI ---
+st.set_page_config(layout="wide")
+st.title("📄 Resume Tracker Dashboard")
+
+# --- Handle Resume Access via Query Parameter ---
+query_params = st.query_params
+resume_id_to_track = query_params.get("resume_id", [None])[0]
+
+if resume_id_to_track:
+    serve_resume_and_track(resume_id_to_track)
+    # Stop further rendering of the main page if we are serving/tracking a resume
+    # This prevents the main dashboard from showing below the download button.
+    st.stop()
+
+
+# --- Main Dashboard Area ---
+tab1, tab2, tab3 = st.tabs(["📤 Upload & Generate Link", "📊 Tracking Dashboard", "⚙️ Manage Data"])
+
+with tab1:
+    st.header("1. Upload Your Resume")
+    uploaded_file = st.file_uploader("Choose your resume PDF", type=["pdf", "docx", "doc"])
+
+    if uploaded_file is not None:
+        save_path = os.path.join(RESUMES_DIR, uploaded_file.name)
+        try:
+            with open(save_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            st.session_state.uploaded_file_details = {
+                'path': save_path,
+                'name': uploaded_file.name
+            }
+            st.success(f"Resume '{uploaded_file.name}' uploaded successfully to '{save_path}'!")
+        except Exception as e:
+            st.error(f"Error saving file: {e}")
+
+    if st.session_state.uploaded_file_details:
+        st.markdown("---")
+        st.header("2. Generate Trackable Link")
+        if st.button("🔗 Generate Link for Last Uploaded Resume"):
+            file_details = st.session_state.uploaded_file_details
+            link_id = generate_trackable_link_persistent(file_details['path'], file_details['name'])
+
+            # Try to construct a full URL
+            # This is highly dependent on your deployment environment
+            # For local:
+            base_app_url = "http://localhost:8501" # Streamlit's default local URL
+            # For Streamlit Community Cloud, it's harder to get programmatically without more context
+            # You might need to manually input your base Streamlit app URL if deployed
+            
+            trackable_url_param = f"?resume_id={link_id}"
+            full_trackable_url = f"{base_app_url}/{trackable_url_param}"
+
+
+            st.subheader("Share this link:")
+            st.code(full_trackable_url)
+            st.info(f"When this link is opened, the view count will be updated in the 'Tracking Dashboard'.")
+            st.warning("Ensure this Streamlit app is running and accessible at the base URL for the link to work.")
+
+with tab2:
+    st.header("📊 Resume View Tracking")
+
+    if st.button("🔄 Refresh Dashboard"):
+        st.rerun() # Reruns the script to fetch the latest data
+
+    tracking_data = load_tracking_data()
+
+    if tracking_data:
+        st.markdown(f"Last dashboard update: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`")
+        
+        # Prepare data for display (e.g., in a more table-friendly format)
+        display_data = []
+        for link_id, data in tracking_data.items():
+            display_data.append({
+                "Resume Name": data['original_name'],
+                "View Count": data['view_count'],
+                "Last Viewed": datetime.fromisoformat(data['last_viewed_timestamp']).strftime('%Y-%m-%d %H:%M:%S') if data['last_viewed_timestamp'] else "Never",
+                "Created": datetime.fromisoformat(data['created_timestamp']).strftime('%Y-%m-%d %H:%M:%S'),
+                "Link ID": link_id,
+                # "Trackable Link": f"{base_app_url}/?resume_id={link_id}" # Requires base_app_url to be defined here too
+            })
+        
+        if display_data:
+            st.dataframe(display_data, use_container_width=True)
+
+            st.subheader("Detailed View Logs (Last 5 per resume)")
+            for link_id, data in tracking_data.items():
+                with st.expander(f"{data['original_name']} (ID: {link_id}) - {data['view_count']} views"):
+                    if data['view_timestamps']:
+                        st.write("Recent view times:")
+                        for ts in reversed(data['view_timestamps'][-5:]): # Show last 5 views
+                            st.caption(f"- {datetime.fromisoformat(ts).strftime('%Y-%m-%d %H:%M:%S')}")
+                    else:
+                        st.caption("No views recorded yet.")
         else:
-            st.write("You have not uploaded any resumes yet.")
+            st.info("No resumes are currently being tracked. Upload a resume and generate a link first.")
+            
     else:
-        st.write("You have not uploaded any resumes yet.")
+        st.info("No tracking data found. Upload a resume and generate a trackable link to begin.")
 
+with tab3:
+    st.header("⚙️ Manage Tracking Data")
+    st.warning("⚠️ Be careful with these actions. Data deletion is permanent.")
 
+    tracking_data = load_tracking_data()
+    if tracking_data:
+        selected_id_to_delete = st.selectbox("Select Resume Link to Delete:", options=[""] + list(tracking_data.keys()), format_func=lambda x: tracking_data.get(x, {}).get('original_name', x) if x else "Select...")
 
-def display_profile_views():
-    """Displays the view count for the user's profile."""
-    user_id = get_user_id()
-    if user_id in user_profiles:
-        st.header("Your Profile Views")
-        st.write(f"Total Profile Views: {user_profiles[user_id]['profile_views']}")
-        st.write(f"Unique Profile Viewers: {len(user_profiles[user_id]['unique_profile_viewers'])}")
-        if 'last_profile_view' in st.session_state:
-            st.write(f"Last Profile View: {st.session_state['last_profile_view']}")
-        else:
-            st.write("No profile views recorded yet.")
+        if selected_id_to_delete and st.button(f"🗑️ Delete Tracking for '{tracking_data[selected_id_to_delete]['original_name']}'", type="primary"):
+            # Optionally, also delete the file from RESUMES_DIR
+            # file_to_delete_path = tracking_data[selected_id_to_delete]['file_path']
+            del tracking_data[selected_id_to_delete]
+            save_tracking_data(tracking_data)
+            # if os.path.exists(file_to_delete_path):
+            #     os.remove(file_to_delete_path)
+            #     st.success(f"Deleted resume file '{file_to_delete_path}' and its tracking data.")
+            # else:
+            st.success(f"Deleted tracking data for link ID '{selected_id_to_delete}'.")
+            st.rerun()
+
+        if st.button("⚠️ Delete ALL Tracking Data", type="primary"):
+            if st.checkbox("I am sure I want to delete all tracking data."): # Confirmation
+                save_tracking_data({}) # Clears the data
+                # Optionally clear the resumes directory too, but be very careful
+                # for filename in os.listdir(RESUMES_DIR):
+                #     os.remove(os.path.join(RESUMES_DIR, filename))
+                st.success("All tracking data has been deleted.")
+                st.rerun()
     else:
-        st.write("No profile views recorded yet.")
-
-def get_viewer_ip():
-    """
-    Gets the viewer's IP address.
-    """
-    forwarded_for = st.session_state.get('X-Forwarded-For')
-    if forwarded_for:
-        viewer_ip = forwarded_for.split(',')[0].strip()
-    else:
-        viewer_ip = "Unknown"
-    return viewer_ip
-
-def main():
-    """Main function for the Streamlit app."""
-    st.title("Intelligent Resume Tracking System")
-
-    # Get User ID
-    user_id = get_user_id()
-
-    # Get Viewer IP and store it
-    viewer_ip = get_viewer_ip()
-    st.session_state['viewer_ip'] = viewer_ip
-
-    # Sidebar for Navigation
-    menu = ["Upload Resume", "View Resumes", "View Profile", "Track Resume"]
-    choice = st.sidebar.selectbox("Menu", menu)
-
-    if choice == "Upload Resume":
-        st.header("Upload Your Resume")
-        uploaded_file = st.file_uploader("Choose a file", type=['pdf', 'doc', 'docx'])
-        if uploaded_file is not None:
-            if is_valid_file_type(uploaded_file):
-                tracking_id, filename = store_resume(user_id, uploaded_file)
-                st.success(
-                    f"Resume uploaded successfully!  Use this tracking ID: {tracking_id} to track views.\n"
-                    f"A tracking link has been automatically generated for this resume."
-                )
-                # Display the tracking link immediately after upload
-                tracking_link = f"/?tracking_id={tracking_id}"
-                st.markdown(f"Tracking Link: [{tracking_link}]({tracking_link})")
-            else:
-                st.error("Invalid file type. Please upload a PDF, DOC, or DOCX file.")
-
-    elif choice == "View Resumes":
-        display_all_resumes()
-
-    elif choice == "View Profile":
-        profile_views, unique_viewers = track_profile_view()
-        display_profile_views()
-
-    elif choice == "Track Resume":
-        st.header("Track Resume Views")
-        tracking_id = st.text_input("Enter the tracking ID of the resume you want to track:")
-        if tracking_id:
-            display_tracking_info(tracking_id)
-
-    # Handle tracking via URL parameter
-    query_params = st.query_params
-    if "tracking_id" in query_params:
-        tracking_id = query_params["tracking_id"][0]
-        viewer_ip = st.session_state.get('viewer_ip', 'Unknown')
-        referrer = st.session_state.get('HTTP_REFERER', 'Direct')
-        record_view(tracking_id, viewer_ip, referrer)
-        display_resume(tracking_id)
-
-if __name__ == "__main__":
-    main()
+        st.info("No tracking data to manage.")
