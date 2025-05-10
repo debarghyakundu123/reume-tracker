@@ -1,3 +1,4 @@
 streamlit
 
 fitz
+frontend
