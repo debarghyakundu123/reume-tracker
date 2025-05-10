@@ -1,5 +1,5 @@
 import streamlit as st
-import fitz  # PyMuPDF
+import pymupdf  # ✅ Correct PyMuPDF import
 import csv
 import time
 import os
@@ -34,12 +34,12 @@ if uploaded_file is not None:
     with open("original_resume.pdf", "wb") as f:
         f.write(uploaded_file.read())
 
-    # Generate a unique tracker ID (can be improved)
+    # Generate a unique tracker ID (can be enhanced to be dynamic)
     tracker_id = "unique123"
-    streamlit_url = "https://reume-tracker-dk.streamlit.app/"  # Replace this with your real app URL
-    tracking_text = f"This resume is tracked. Verify here: {streamlit_url}/?track={tracker_id}"  # The text we insert
+    streamlit_url = "YOUR_STREAMLIT_APP_URL"  # Replace with your actual Streamlit app URL
+    tracking_text = f"This resume is tracked. Verify here: {streamlit_url}/?track={tracker_id}"  # Text to insert
 
-    doc = fitz.open("original_resume.pdf")
+    doc = pymupdf.open("original_resume.pdf")
     page = doc[0]
 
     # Insert the tracking text at the top of the first page
