@@ -128,7 +128,9 @@ def display_resume(tracking_id):
 def track_profile_view():
     """Tracks a view of the user's profile."""
     user_id = get_user_id()
-    viewer_ip = st.request.remote_ip
+    # viewer_ip = st.request.remote_ip # Removed st.request
+    # Get IP from session state if available (set in main), otherwise, use a placeholder
+    viewer_ip = st.session_state.get('viewer_ip', 'Unknown')
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if user_id not in user_profiles:
@@ -205,6 +207,13 @@ def main():
     # Get User ID
     user_id = get_user_id()
 
+    # Get Viewer IP and store it in session state
+    # This is the workaround for not having st.request
+    viewer_ip = st.session_state.get('viewer_ip')
+    if viewer_ip is None:
+        viewer_ip = st.request.remote_ip if st.request else "Unknown" # added a check if st.request exists
+        st.session_state['viewer_ip'] = viewer_ip
+
     # Sidebar for Navigation
     menu = ["Upload Resume", "View Resumes", "View Profile", "Track Resume"]
     choice = st.sidebar.selectbox("Menu", menu)
@@ -241,7 +250,7 @@ def main():
         tracking_id = query_params["tracking_id"][0]
         # st.write(f"Tracking ID from URL: {tracking_id}") #debug
         #st.stop() #debug
-        viewer_ip = st.request.remote_ip
+        viewer_ip = st.session_state.get('viewer_ip', 'Unknown') # Get from session, default to "Unknown"
         referrer = st.session_state.get('HTTP_REFERER', 'Direct') #  get the referrer
         record_view(tracking_id, viewer_ip, referrer) #record view
         display_resume(tracking_id) #show resume
@@ -249,3 +258,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
